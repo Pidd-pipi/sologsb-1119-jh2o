@@ -106,6 +106,14 @@ export function ProcedureTimeline({ items, onFinish, onRollback, onOpenPhoto }: 
                     胶种：{node.adhesive || '—'}
                     {node.adhesiveConc > 0 ? `（浓度 ${node.adhesiveConc} %）` : ''}
                   </Typography>
+                  <Typography variant="body2" data-testid={`procedure-materials-${node.seq}`}>
+                    耗材明细：
+                    {node.materials && node.materials.length
+                      ? node.materials
+                          .map((m) => `${m.name} ${m.qty}${m.unit}（${m.source === 'default' ? '默认用量' : '手动'}）`)
+                          .join('、')
+                      : '—'}
+                  </Typography>
                   <Typography variant="body2">
                     环境：{node.tempC} ℃ / RH {node.rh} %
                   </Typography>

@@ -17,7 +17,7 @@ import { useProcedureStore } from '../stores/procedureStore';
 import { usePrepProgress } from '../hooks/usePrepProgress';
 import { ProcedureTimeline } from '../components/common/ProcedureTimeline';
 import { MeasureField } from '../components/common/MeasureField';
-import { STEP_FIELD_MAP, STEP_TYPES, type StepType } from '../types/procedure';
+import { STEP_FIELD_MAP, STEP_TYPES, defaultMaterialsForProcedure, type StepType } from '../types/procedure';
 import { db } from '../utils/db';
 import { newId } from '../utils/id';
 import { makeSketchDataUrl, type PrepPhoto } from '../types/photo';
@@ -89,6 +89,12 @@ export default function ProcedureForm() {
       abrasive,
       adhesive: fieldMap.adhesives.length > 0 ? adhesive : '',
       adhesiveConc: fieldMap.needConc ? adhesiveConc : 0,
+      // 新建工序同步补出可追溯的默认耗材明细（排程工作台勾选时直接带出）
+      materials: defaultMaterialsForProcedure({
+        stepType,
+        abrasive,
+        adhesive: fieldMap.adhesives.length > 0 ? adhesive : '',
+      }),
       durationMin,
       tempC,
       rh,

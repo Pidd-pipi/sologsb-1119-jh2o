@@ -40,6 +40,70 @@ export const STEP_FIELD_MAP: Record<
   },
 };
 
+/** 耗材明细来源：默认用量（按工序类型自动补出）/ 手动选择 */
+export type MaterialSource = 'default' | 'manual';
+
+export const MATERIAL_SOURCE_LABEL: Record<MaterialSource, string> = {
+  default: '默认用量',
+  manual: '手动',
+};
+
+/** 默认用量的追溯说明 */
+export const DEFAULT_MATERIAL_NOTE = '按工序类型补出的默认用量（v3 升级）';
+
+/** 工序耗材明细：可追溯到名称、数量与来源 */
+export interface ProcedureMaterial {
+  /** 材料名称，需与材料批次 name 对得上才能参与自动分配 */
+  name: string;
+  qty: number;
+  unit: string;
+  source: MaterialSource;
+  note?: string;
+}
+
+/** 按工序类型的默认耗材用量（升级老工序与新建工序都以此补出可追溯明细） */
+export const STEP_DEFAULT_MATERIALS: Record<StepType, Array<Omit<ProcedureMaterial, 'source'>>> = {
+  清修: [
+    { name: '气动笔针头', qty: 1, unit: '支', note: DEFAULT_MATERIAL_NOTE },
+    { name: '碳化硅磨料', qty: 1, unit: '袋', note: DEFAULT_MATERIAL_NOTE },
+  ],
+  加固: [
+    { name: 'Paraloid B-72', qty: 1, unit: '瓶', note: DEFAULT_MATERIAL_NOTE },
+    { name: '渗透滴管', qty: 1, unit: '支', note: DEFAULT_MATERIAL_NOTE },
+  ],
+  粘接: [
+    { name: 'Paraloid B-72', qty: 1, unit: '瓶', note: DEFAULT_MATERIAL_NOTE },
+    { name: '点胶针', qty: 2, unit: '支', note: DEFAULT_MATERIAL_NOTE },
+  ],
+  补配: [
+    { name: '环氧树脂 E44', qty: 1, unit: '瓶', note: DEFAULT_MATERIAL_NOTE },
+    { name: '碳化硅磨料', qty: 1, unit: '袋', note: DEFAULT_MATERIAL_NOTE },
+  ],
+  翻模: [
+    { name: '硅橡胶', qty: 2, unit: '袋', note: DEFAULT_MATERIAL_NOTE },
+    { name: '石膏浆料', qty: 1, unit: '袋', note: DEFAULT_MATERIAL_NOTE },
+  ],
+};
+
+/** 默认用量里属于胶种的材料名（工序已登记具体胶种时用它替换） */
+const ADHESIVE_MATERIAL_NAMES = new Set(['Paraloid B-72', '环氧树脂 E44', '硅橡胶', '石膏浆料']);
+
+/**
+ * 按工序类型补出默认耗材明细；当工序已经登记过具体胶种时，
+ * 默认用量中的胶种行采用已登记胶种（单位沿用默认，找不到批号时会在排程缺口里体现）。
+ */
+export function defaultMaterialsForProcedure(input: {
+  stepType: StepType;
+  abrasive?: string;
+  adhesive?: string;
+}): ProcedureMaterial[] {
+  const rows = STEP_DEFAULT_MATERIALS[input.stepType] ?? [];
+  return rows.map((row) => {
+    const name = input.adhesive && ADHESIVE_MATERIAL_NAMES.has(row.name) ? input.adhesive : row.name;
+    return { ...row, name, source: 'default' };
+  });
+}
+
 /** 工序节点状态 */
 export type ProcedureState = 'pending' | 'done' | 'rolledback';
 
@@ -60,6 +124,8 @@ export interface PrepProcedure {
   adhesive: string;
   /** 胶液浓度 % */
   adhesiveConc: number;
+  /** 耗材明细（v3）：默认用量或手动选择，可追溯 */
+  materials: ProcedureMaterial[];
   /** 耗时 min */
   durationMin: number;
   /** 环境温度 ℃ */
