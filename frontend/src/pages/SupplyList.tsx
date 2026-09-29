@@ -22,7 +22,7 @@ import AddIcon from '@mui/icons-material/Add';
 import { useSupplyStore } from '../stores/supplyStore';
 import { useSpecimenStore } from '../stores/specimenStore';
 import { MeasureField } from '../components/common/MeasureField';
-import { SUPPLY_KINDS, isLowStock, shelfLifeLeftDays, type SupplyKind, type SupplyLot, type SupplyLotDraft } from '../types/supply';
+import { SUPPLY_KINDS, STOCK_MOVEMENT_LABEL, STOCK_MOVEMENT_COLOR, availableQty, isLowStock, shelfLifeLeftDays, type SupplyKind, type StockMovement, type SupplyLot, type SupplyLotDraft } from '../types/supply';
 
 const EMPTY_DRAFT: SupplyLotDraft = {
   name: '',
@@ -83,8 +83,9 @@ export default function SupplyList() {
 
   const submitIssue = async () => {
     if (!issueTarget) return;
-    if (issueQty <= 0 || issueQty > issueTarget.qty) {
-      setError(`领用数量需在 1 ~ ${issueTarget.qty} ${issueTarget.unit} 之间`);
+    const avail = availableQty(issueTarget);
+    if (issueQty <= 0 || issueQty > avail) {
+      setError(`领用数量需在 1 ~ ${avail} ${issueTarget.unit} 之间（可用量）`);
       return;
     }
     if (!issueOperator.trim()) {
@@ -168,9 +169,11 @@ export default function SupplyList() {
                   <TableCell>规格</TableCell>
                   <TableCell>批号</TableCell>
                   <TableCell align="right">在库</TableCell>
+                  <TableCell align="right">预占</TableCell>
+                  <TableCell align="right">可用</TableCell>
                   <TableCell align="right">低量阈值</TableCell>
                   <TableCell align="right">剩余保质期</TableCell>
-                  <TableCell>最近领用</TableCell>
+                  <TableCell>最近变动</TableCell>
                   <TableCell align="right">操作</TableCell>
                 </TableRow>
               </TableHead>
@@ -178,6 +181,8 @@ export default function SupplyList() {
                 {group.rows.map((lot) => {
                   const low = isLowStock(lot);
                   const left = shelfLifeLeftDays(lot);
+                  const avail = availableQty(lot);
+                  const lastMv = lot.movements[0];
                   return (
                     <TableRow
                       key={lot.id}
@@ -194,19 +199,34 @@ export default function SupplyList() {
                       <TableCell align="right">
                         {lot.qty} {lot.unit}
                       </TableCell>
+                      <TableCell align="right">
+                        {lot.reservedQty > 0 ? (
+                          <Chip size="small" color="info" variant="outlined" label={`${lot.reservedQty} ${lot.unit}`} />
+                        ) : (
+                          '—'
+                        )}
+                      </TableCell>
+                      <TableCell align="right">{avail} {lot.unit}</TableCell>
                       <TableCell align="right">{lot.lowThreshold}</TableCell>
                       <TableCell align="right">
                         {left < 0 ? <Chip size="small" color="error" label={`已过期 ${-left} 天`} /> : `${left} 天`}
                       </TableCell>
                       <TableCell>
-                        {lot.issues.length === 0
-                          ? '—'
-                          : `${lot.issues[0].operator} 领 ${lot.issues[0].qty} ${lot.unit}（${lot.issues[0].specimenNo}）`}
+                        {lastMv ? (
+                          <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
+                            <Chip size="small" color={STOCK_MOVEMENT_COLOR[lastMv.type]} label={STOCK_MOVEMENT_LABEL[lastMv.type]} />
+                            <Typography variant="caption">
+                              {lastMv.operator} {lastMv.qty} {lot.unit}
+                            </Typography>
+                          </Stack>
+                        ) : (
+                          '—'
+                        )}
                       </TableCell>
                       <TableCell align="right">
                         <Button
                           size="small"
-                          disabled={lot.qty <= 0}
+                          disabled={avail <= 0}
                           onClick={() => {
                             setIssueTarget(lot);
                             setIssueQty(1);
@@ -222,14 +242,23 @@ export default function SupplyList() {
               </TableBody>
             </Table>
           )}
-          {group.rows.some((r) => r.issues.length > 1) ? (
+          {group.rows.some((r) => r.movements.length > 0) ? (
             <Stack spacing={0.5} sx={{ mt: 1 }}>
               {group.rows
-                .filter((r) => r.issues.length > 1)
+                .filter((r) => r.movements.length > 0)
                 .map((r) => (
-                  <Typography key={r.id} variant="caption" color="text.secondary">
-                    批号 {r.lotNo} 的领用明细：
-                    {r.issues.map((i) => `${i.operator} ${i.qty}${r.unit}→${i.specimenNo}`).join('；')}
+                  <Typography key={r.id} variant="caption" color="text.secondary" component="div">
+                    批号 {r.lotNo} 变动明细：
+                    {r.movements.map((m: StockMovement) => (
+                      <Chip
+                        key={m.id}
+                        size="small"
+                        sx={{ mr: 0.5, my: 0.25 }}
+                        color={STOCK_MOVEMENT_COLOR[m.type]}
+                        variant="outlined"
+                        label={`${STOCK_MOVEMENT_LABEL[m.type]} ${m.operator} ${m.qty}${r.unit}${m.specimenNo ? ` → ${m.specimenNo}` : ''}${m.note ? `（${m.note}）` : ''}`}
+                      />
+                    ))}
                   </Typography>
                 ))}
             </Stack>
@@ -343,14 +372,14 @@ export default function SupplyList() {
             {error ? <Alert severity="error">{error}</Alert> : null}
             {issueTarget ? (
               <Typography variant="body2" color="text.secondary">
-                批号 {issueTarget.lotNo} · 现存 {issueTarget.qty} {issueTarget.unit}
+                批号 {issueTarget.lotNo} · 可用 {availableQty(issueTarget)} {issueTarget.unit}（在库 {issueTarget.qty} · 预占 {issueTarget.reservedQty}）
               </Typography>
             ) : null}
             <MeasureField
               label="领用数量"
               unit={issueTarget?.unit ?? '件'}
               min={1}
-              max={issueTarget?.qty ?? 1}
+              max={issueTarget ? availableQty(issueTarget) : 1}
               step={1}
               value={issueQty}
               onChange={setIssueQty}

@@ -1,13 +1,14 @@
 import Dexie, { type Table } from 'dexie';
 import type { Specimen } from '../types/specimen';
-import type { PrepProcedure } from '../types/procedure';
+import { DEFAULT_CONSUMABLES, type PrepProcedure } from '../types/procedure';
 import type { SupplyLot } from '../types/supply';
 import type { PrepPhoto } from '../types/photo';
+import type { Reservation } from '../types/reservation';
 import { makeSketchDataUrl } from '../types/photo';
 import { newId } from './id';
 
 /** 当前数据结构版本，写入 localStorage 便于回显 */
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 export const DB_NAME = 'gbfossilprep';
 export const LS_VERSION_KEY = 'gbfossilprep:db-version';
 
@@ -16,6 +17,7 @@ class FossilPrepDB extends Dexie {
   procedures!: Table<PrepProcedure, string>;
   supplies!: Table<SupplyLot, string>;
   photos!: Table<PrepPhoto, string>;
+  reservations!: Table<Reservation, string>;
 
   constructor() {
     super(DB_NAME);
@@ -52,6 +54,49 @@ class FossilPrepDB extends Dexie {
           .modify((row: any) => {
             if (!row.issues) row.issues = [];
             if (row.lowThreshold === undefined) row.lowThreshold = 1;
+          });
+      });
+    // v3：新增排程预留表；材料批次增加预占数量与变动明细；老工序补默认可追溯耗材用量
+    this.version(3)
+      .stores({
+        specimens: 'id, specimenNo, taxon, locality, status, createdAt',
+        procedures: 'id, specimenId, seq, stepType, state, startedAt',
+        supplies: 'id, kind, lotNo, name, openedAt',
+        photos: 'id, specimenId, procedureId, stage, capturedAt',
+        reservations: 'id, code, status, operator, createdAt, updatedAt',
+      })
+      .upgrade(async (tx) => {
+        // 材料批次：issues（旧领用记录）迁移为 movements（预占/领用/退回统一台账），并补 reservedQty
+        await tx
+          .table('supplies')
+          .toCollection()
+          .modify((row: any) => {
+            if (!Array.isArray(row.movements)) {
+              row.movements = Array.isArray(row.issues)
+                ? row.issues.map((iss: any) => ({
+                    id: iss.id ?? newId('mv'),
+                    type: 'issue',
+                    qty: iss.qty,
+                    operator: iss.operator,
+                    at: iss.issuedAt,
+                    specimenNo: iss.specimenNo,
+                    note: '升级前领用记录',
+                  }))
+                : [];
+            }
+            if (row.reservedQty === undefined) row.reservedQty = 0;
+            delete row.issues;
+          });
+        // 老工序补耗材明细：按工序类型带出默认用量并标记 default（可追溯）；
+        // 已完成工序保持原状态，不回退、不补库存
+        await tx
+          .table('procedures')
+          .toCollection()
+          .modify((row: any) => {
+            if (!Array.isArray(row.consumables) || row.consumables.length === 0) {
+              const defaults = DEFAULT_CONSUMABLES[row.stepType as keyof typeof DEFAULT_CONSUMABLES];
+              row.consumables = defaults ? defaults.map((c) => ({ ...c })) : [];
+            }
           });
       });
   }
@@ -129,6 +174,7 @@ export async function ensureSeedData(): Promise<void> {
       abrasive: '800 目',
       adhesive: '',
       adhesiveConc: 0,
+      consumables: DEFAULT_CONSUMABLES['清修'].map((c) => ({ ...c })),
       durationMin: 145,
       tempC: 22,
       rh: 48,
@@ -149,6 +195,7 @@ export async function ensureSeedData(): Promise<void> {
       abrasive: '',
       adhesive: 'Paraloid B-72',
       adhesiveConc: 5,
+      consumables: DEFAULT_CONSUMABLES['加固'].map((c) => ({ ...c })),
       durationMin: 90,
       tempC: 23,
       rh: 45,
@@ -192,18 +239,51 @@ export async function ensureSeedData(): Promise<void> {
       lotNo: 'B72-20240312',
       qty: 4,
       unit: '瓶',
+      reservedQty: 0,
       openedAt: now - 40 * day,
       shelfLifeMonths: 36,
       lowThreshold: 2,
-      issues: [
+      movements: [
         {
-          id: newId('iss'),
+          id: newId('mv'),
+          type: 'issue',
           qty: 1,
           operator: '林砚秋',
+          at: now - 6 * day,
           specimenNo: 'FP-2024-0031',
-          issuedAt: now - 6 * day,
+          note: '清修后封护领用',
         },
       ],
+    },
+    {
+      id: newId('sup'),
+      name: 'Paraloid B-72',
+      kind: '胶种',
+      spec: '分析纯 500 g',
+      lotNo: 'B72-20230618',
+      qty: 2,
+      unit: '瓶',
+      reservedQty: 0,
+      // 临期批次：开封已近 35 个月，保质期仅剩约 1 个月，排程应优先分配
+      openedAt: now - 35.5 * 30 * day,
+      shelfLifeMonths: 36,
+      lowThreshold: 2,
+      movements: [],
+    },
+    {
+      id: newId('sup'),
+      name: 'Paraloid B-72',
+      kind: '胶种',
+      spec: '分析纯 500 g',
+      lotNo: 'B72-20220110',
+      qty: 1,
+      unit: '瓶',
+      reservedQty: 0,
+      // 过期批次：已过保质期，自动分配应跳过
+      openedAt: now - 40 * 30 * day,
+      shelfLifeMonths: 36,
+      lowThreshold: 1,
+      movements: [],
     },
     {
       id: newId('sup'),
@@ -213,10 +293,11 @@ export async function ensureSeedData(): Promise<void> {
       lotNo: 'SIC-800-2401',
       qty: 1,
       unit: '袋',
+      reservedQty: 0,
       openedAt: now - 60 * day,
       shelfLifeMonths: 60,
       lowThreshold: 2,
-      issues: [],
+      movements: [],
     },
     {
       id: newId('sup'),
@@ -226,10 +307,26 @@ export async function ensureSeedData(): Promise<void> {
       lotNo: 'NEEDLE-2312',
       qty: 18,
       unit: '支',
+      reservedQty: 0,
       openedAt: now - 90 * day,
       shelfLifeMonths: 120,
       lowThreshold: 5,
-      issues: [],
+      movements: [],
+    },
+    {
+      id: newId('sup'),
+      name: '氰基丙烯酸酯',
+      kind: '胶种',
+      spec: '快固型 20 g',
+      lotNo: 'CA-2405',
+      qty: 0,
+      unit: '瓶',
+      reservedQty: 0,
+      // 无在库：排程分配时应报缺口
+      openedAt: now - 20 * day,
+      shelfLifeMonths: 12,
+      lowThreshold: 2,
+      movements: [],
     },
     {
       id: newId('sup'),
@@ -239,10 +336,11 @@ export async function ensureSeedData(): Promise<void> {
       lotNo: 'US-6L-01',
       qty: 1,
       unit: '台',
+      reservedQty: 0,
       openedAt: now - 200 * day,
       shelfLifeMonths: 120,
       lowThreshold: 1,
-      issues: [],
+      movements: [],
     },
   ];
 

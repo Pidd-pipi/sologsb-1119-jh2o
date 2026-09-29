@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { db } from '../utils/db';
 import { newId } from '../utils/id';
-import type { PrepProcedure, PrepProcedureDraft } from '../types/procedure';
+import { DEFAULT_CONSUMABLES, type PrepProcedure, type PrepProcedureDraft } from '../types/procedure';
 
 interface ProcedureState {
   items: PrepProcedure[];
@@ -23,7 +23,12 @@ export const useProcedureStore = create<ProcedureState>((set, get) => ({
     set({ items, loaded: true });
   },
   async add(draft) {
-    const record: PrepProcedure = { ...draft, id: newId('prc') };
+    // 新工序未带耗材明细时，按工序类型补出默认用量（可追溯）
+    const consumables =
+      draft.consumables && draft.consumables.length > 0
+        ? draft.consumables
+        : (DEFAULT_CONSUMABLES[draft.stepType] ?? []).map((c) => ({ ...c }));
+    const record: PrepProcedure = { ...draft, consumables, id: newId('prc') };
     await db.procedures.put(record);
     set({ items: [...get().items, record] });
     return record;

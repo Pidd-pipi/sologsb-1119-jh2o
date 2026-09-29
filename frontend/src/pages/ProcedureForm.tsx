@@ -17,7 +17,7 @@ import { useProcedureStore } from '../stores/procedureStore';
 import { usePrepProgress } from '../hooks/usePrepProgress';
 import { ProcedureTimeline } from '../components/common/ProcedureTimeline';
 import { MeasureField } from '../components/common/MeasureField';
-import { STEP_FIELD_MAP, STEP_TYPES, type StepType } from '../types/procedure';
+import { STEP_FIELD_MAP, STEP_TYPES, DEFAULT_CONSUMABLES, type StepType } from '../types/procedure';
 import { db } from '../utils/db';
 import { newId } from '../utils/id';
 import { makeSketchDataUrl, type PrepPhoto } from '../types/photo';
@@ -89,6 +89,7 @@ export default function ProcedureForm() {
       abrasive,
       adhesive: fieldMap.adhesives.length > 0 ? adhesive : '',
       adhesiveConc: fieldMap.needConc ? adhesiveConc : 0,
+      consumables: DEFAULT_CONSUMABLES[stepType].map((c) => ({ ...c })),
       durationMin,
       tempC,
       rh,
@@ -278,6 +279,22 @@ export default function ProcedureForm() {
                 ) : null}
               </Stack>
             ) : null}
+
+            <Box>
+              <Typography variant="caption" color="text.secondary">
+                耗材明细（按工序类型带出默认用量，保存后可在排程预留中调整）
+              </Typography>
+              <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ mt: 0.5 }}>
+                {DEFAULT_CONSUMABLES[stepType].map((c) => (
+                  <Chip
+                    key={c.name}
+                    size="small"
+                    variant="outlined"
+                    label={`${c.name} ${c.qty} ${c.unit}`}
+                  />
+                ))}
+              </Stack>
+            </Box>
 
             <Stack direction="row" spacing={1.5}>
               <Box sx={{ flex: 1 }}>

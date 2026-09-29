@@ -10,15 +10,41 @@ import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
 import CircularProgress from '@mui/material/CircularProgress';
 import Chip from '@mui/material/Chip';
+import Snackbar from '@mui/material/Snackbar';
 import { useSpecimenStore } from '../stores/specimenStore';
 import { useProcedureStore } from '../stores/procedureStore';
 import { useSupplyStore } from '../stores/supplyStore';
+import { useReservationStore } from '../stores/reservationStore';
 import { ensureSeedData, markDbVersion, readDbVersion } from '../utils/db';
+import { onStockChanged } from '../utils/crossTab';
 import SpecimenList from '../pages/SpecimenList';
 import SpecimenDetail from '../pages/SpecimenDetail';
 import ProcedureForm from '../pages/ProcedureForm';
 import SupplyList from '../pages/SupplyList';
+import ReservationWorkbench from '../pages/ReservationWorkbench';
 import CompareView from '../pages/CompareView';
+
+/** 跨窗口库存同步：其他窗口改过库存后，提示并重新拉取最新在库/预占数量 */
+function StockSyncListener() {
+  const loadSupplies = useSupplyStore((s) => s.load);
+  const loadReservations = useReservationStore((s) => s.load);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    return onStockChanged(() => {
+      void Promise.all([loadSupplies(), loadReservations()]).then(() => setOpen(true));
+    });
+  }, [loadSupplies, loadReservations]);
+
+  return (
+    <Snackbar
+      open={open}
+      autoHideDuration={4000}
+      onClose={() => setOpen(false)}
+      message="检测到其他窗口已修改库存，已同步最新在库与预占数量"
+    />
+  );
+}
 
 function Shell() {
   const location = useLocation();
@@ -31,6 +57,7 @@ function Shell() {
     return [
       { label: '标本台账', path: '/specimens' },
       { label: '工序录入', path: '/procedures/new' },
+      { label: '排程预留', path: '/reservations' },
       { label: '材料台账', path: '/supplies' },
       { label: '前后对照', path: firstId ? `/compare/${firstId}` : '/specimens' },
     ];
@@ -60,11 +87,13 @@ function Shell() {
         </Toolbar>
       </AppBar>
       <Container maxWidth="xl" sx={{ py: 3 }}>
+        <StockSyncListener />
         <Routes>
           <Route path="/" element={<Navigate to="/specimens" replace />} />
           <Route path="/specimens" element={<SpecimenList />} />
           <Route path="/specimens/:id" element={<SpecimenDetail />} />
           <Route path="/procedures/new" element={<ProcedureForm />} />
+          <Route path="/reservations" element={<ReservationWorkbench />} />
           <Route path="/supplies" element={<SupplyList />} />
           <Route path="/compare/:specimenId" element={<CompareView />} />
           <Route path="*" element={<Navigate to="/specimens" replace />} />
@@ -80,19 +109,20 @@ export default function AppRouter() {
   const loadSpecimens = useSpecimenStore((s) => s.load);
   const loadProcedures = useProcedureStore((s) => s.load);
   const loadSupplies = useSupplyStore((s) => s.load);
+  const loadReservations = useReservationStore((s) => s.load);
 
   useEffect(() => {
     let alive = true;
     (async () => {
       await ensureSeedData();
       await markDbVersion();
-      await Promise.all([loadSpecimens(), loadProcedures(), loadSupplies()]);
+      await Promise.all([loadSpecimens(), loadProcedures(), loadSupplies(), loadReservations()]);
       if (alive) setReady(true);
     })();
     return () => {
       alive = false;
     };
-  }, [loadSpecimens, loadProcedures, loadSupplies]);
+  }, [loadSpecimens, loadProcedures, loadSupplies, loadReservations]);
 
   if (!ready) {
     return (

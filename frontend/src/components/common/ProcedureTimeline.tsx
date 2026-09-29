@@ -107,6 +107,12 @@ export function ProcedureTimeline({ items, onFinish, onRollback, onOpenPhoto }: 
                     {node.adhesiveConc > 0 ? `（浓度 ${node.adhesiveConc} %）` : ''}
                   </Typography>
                   <Typography variant="body2">
+                    耗材：
+                    {node.consumables && node.consumables.length > 0
+                      ? node.consumables.map((c) => `${c.name} ${c.qty} ${c.unit}${c.source === 'default' ? '（默认）' : ''}`).join('、')
+                      : '—'}
+                  </Typography>
+                  <Typography variant="body2">
                     环境：{node.tempC} ℃ / RH {node.rh} %
                   </Typography>
                   <Typography variant="body2">开始：{fmtTime(node.startedAt)}</Typography>
